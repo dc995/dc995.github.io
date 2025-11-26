@@ -5,25 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Miss Piggy's Asteroid Adventure</title>
     <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
         body {
             margin: 0;
-            padding: 0;
+            padding: 10px;
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             background: linear-gradient(to bottom, #000033 0%, #000000 100%);
             font-family: Arial, sans-serif;
+            overflow-x: hidden;
         }
 
         #gameContainer {
             position: relative;
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
         canvas {
             border: 2px solid #ff69b4;
             background: #000011;
             display: block;
+            width: 100%;
+            max-width: 800px;
+            height: auto;
+            touch-action: none;
         }
 
         #ui {
@@ -31,9 +47,10 @@
             top: 10px;
             left: 10px;
             color: #ff69b4;
-            font-size: 20px;
+            font-size: 18px;
             text-shadow: 2px 2px 4px #000;
             font-weight: bold;
+            z-index: 10;
         }
 
         #gameOver {
@@ -42,25 +59,26 @@
             left: 50%;
             transform: translate(-50%, -50%);
             background: rgba(0, 0, 0, 0.9);
-            padding: 40px;
+            padding: 30px;
             border: 3px solid #ff69b4;
             border-radius: 10px;
             color: #ff69b4;
             text-align: center;
             display: none;
+            z-index: 20;
         }
 
         #gameOver h1 {
             margin: 0 0 20px 0;
-            font-size: 48px;
+            font-size: 36px;
         }
 
         #gameOver button {
             background: #ff69b4;
             color: white;
             border: none;
-            padding: 15px 30px;
-            font-size: 24px;
+            padding: 12px 24px;
+            font-size: 20px;
             cursor: pointer;
             border-radius: 5px;
             margin-top: 20px;
@@ -70,14 +88,87 @@
             background: #ff1493;
         }
 
-        #instructions {
-            position: absolute;
-            bottom: 10px;
-            left: 50%;
-            transform: translateX(-50%);
+        #controls {
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            width: 100%;
+            max-width: 300px;
+            padding: 10px;
+        }
+
+        .control-btn {
+            aspect-ratio: 1;
+            border: 2px solid #ff69b4;
+            background: rgba(255, 105, 180, 0.2);
+            border-radius: 10px;
             color: #ff69b4;
-            font-size: 14px;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.1s;
+            touch-action: manipulation;
+        }
+
+        .control-btn:active {
+            background: rgba(255, 105, 180, 0.5);
+            transform: scale(0.95);
+        }
+
+        .control-btn.fire {
+            background: rgba(255, 20, 147, 0.3);
+            font-size: 20px;
+        }
+
+        .control-btn.fire:active {
+            background: rgba(255, 20, 147, 0.6);
+        }
+
+        #instructions {
+            margin-top: 15px;
+            color: #ff69b4;
+            font-size: 12px;
             text-align: center;
+            max-width: 90%;
+        }
+
+        @media (min-width: 768px) {
+            #controls {
+                max-width: 350px;
+                gap: 12px;
+            }
+
+            #ui {
+                font-size: 20px;
+            }
+
+            #instructions {
+                font-size: 14px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            #ui {
+                font-size: 16px;
+            }
+
+            #controls {
+                gap: 8px;
+                max-width: 280px;
+            }
+
+            .control-btn {
+                font-size: 20px;
+            }
+
+            .control-btn.fire {
+                font-size: 16px;
+            }
         }
     </style>
 </head>
@@ -93,8 +184,21 @@
             <p>Final Score: <span id="finalScore">0</span></p>
             <button onclick="restartGame()">Play Again</button>
         </div>
+
+        <div id="controls">
+            <button class="control-btn" data-dir="nw">↖</button>
+            <button class="control-btn" data-dir="n">↑</button>
+            <button class="control-btn" data-dir="ne">↗</button>
+            <button class="control-btn" data-dir="w">←</button>
+            <button class="control-btn fire" data-dir="fire">FIRE</button>
+            <button class="control-btn" data-dir="e">→</button>
+            <button class="control-btn" data-dir="sw">↙</button>
+            <button class="control-btn" data-dir="s">↓</button>
+            <button class="control-btn" data-dir="se">↘</button>
+        </div>
+
         <div id="instructions">
-            ← → Rotate | ↑ Thrust | SPACE Fire | Help Miss Piggy destroy the orange faces!
+            Tap directional buttons to thrust | Center button to fire | Keyboard: Arrow keys + SPACE
         </div>
     </div>
 
@@ -118,6 +222,12 @@
             Space: false
         };
 
+        // Touch controls state
+        const touchThrust = {
+            active: false,
+            angle: 0
+        };
+
         // Miss Piggy ship
         class Ship {
             constructor() {
@@ -133,14 +243,22 @@
             }
 
             update() {
-                // Rotation
+                // Rotation (keyboard)
                 if (keys.ArrowLeft) this.angle -= this.rotationSpeed;
                 if (keys.ArrowRight) this.angle += this.rotationSpeed;
 
-                // Thrust
+                // Thrust (keyboard)
                 if (keys.ArrowUp) {
                     this.velocity.x += Math.cos(this.angle) * this.thrust;
                     this.velocity.y += Math.sin(this.angle) * this.thrust;
+                }
+
+                // Thrust (touch controls - directional)
+                if (touchThrust.active) {
+                    this.velocity.x += Math.cos(touchThrust.angle) * this.thrust;
+                    this.velocity.y += Math.sin(touchThrust.angle) * this.thrust;
+                    // Auto-rotate ship to face thrust direction
+                    this.angle = touchThrust.angle;
                 }
 
                 // Apply friction
@@ -454,6 +572,61 @@
             if (e.code in keys) {
                 keys[e.code] = false;
             }
+        });
+
+        // Touch control handlers
+        const directionAngles = {
+            'n': -Math.PI / 2,       // Up
+            'ne': -Math.PI / 4,      // Up-Right
+            'e': 0,                   // Right
+            'se': Math.PI / 4,        // Down-Right
+            's': Math.PI / 2,         // Down
+            'sw': 3 * Math.PI / 4,    // Down-Left
+            'w': Math.PI,             // Left
+            'nw': -3 * Math.PI / 4    // Up-Left
+        };
+
+        // Setup control button event listeners
+        document.querySelectorAll('.control-btn').forEach(btn => {
+            const direction = btn.getAttribute('data-dir');
+
+            // Mouse/Touch start
+            const startControl = (e) => {
+                e.preventDefault();
+
+                if (direction === 'fire') {
+                    // Fire missile
+                    if (gameState.playing) {
+                        const now = Date.now();
+                        if (now - lastShot > 250) {
+                            missiles.push(new Missile(ship.x, ship.y, ship.angle));
+                            lastShot = now;
+                        }
+                    }
+                } else {
+                    // Set thrust direction
+                    touchThrust.active = true;
+                    touchThrust.angle = directionAngles[direction];
+                }
+            };
+
+            // Mouse/Touch end
+            const endControl = (e) => {
+                e.preventDefault();
+                if (direction !== 'fire') {
+                    touchThrust.active = false;
+                }
+            };
+
+            // Mouse events
+            btn.addEventListener('mousedown', startControl);
+            btn.addEventListener('mouseup', endControl);
+            btn.addEventListener('mouseleave', endControl);
+
+            // Touch events
+            btn.addEventListener('touchstart', startControl, { passive: false });
+            btn.addEventListener('touchend', endControl, { passive: false });
+            btn.addEventListener('touchcancel', endControl, { passive: false });
         });
 
         // Update game
